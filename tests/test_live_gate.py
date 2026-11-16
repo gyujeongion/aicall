@@ -126,7 +126,7 @@ def test_unanswered_ends_failed():
         s.call.end = lambda o, m, e=ended: e.append(o); s.call.convo = []
         s.heard = x; s.last_voice = 0.0; s.heard_at = 0.0; s._utterance()
         assert ended == ["failed"], x
-    for x in ("여보세요", "네 홍길동입니다", "아 제가 지금 통화 중이라서요", "지금 전화를 받을 수 없어서요"):
+    for x in ("여보세요", "네 사무실입니다", "아 제가 지금 통화 중이라서요", "지금 전화를 받을 수 없어서요"):
         assert not live.unanswered(x), x
     assert live.unanswered("고객이 전화를 받지 않아 소리샘으로 연결됩니다")
 

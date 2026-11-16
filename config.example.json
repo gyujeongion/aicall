@@ -1,6 +1,6 @@
 {
-  "owner_name": "홍길동",
-  "owner_phone": "010-1234-5678",
+  "owner_name": "",
+  "owner_phone": "",
   "llm": "openai:gpt-6-luna",
   "record": false,
   "monitor": true

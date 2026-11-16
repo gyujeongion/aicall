@@ -7,10 +7,11 @@ import AVFoundation
 
 let res = Bundle.main.resourcePath!
 
+let homeDir = ProcessInfo.processInfo.environment["HOME"].map { URL(fileURLWithPath: $0) } ?? FileManager.default.homeDirectoryForCurrentUser   // CLI(aicall)와 같은 홈을 본다
 // 엔진에 필요한 모듈이 있는 파이썬을 찾는다
 let pythonPath: String = {
-    let home = NSHomeDirectory()
-    for c in ["\(home)/.pyenv/versions/3.10.13/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
+    let home = homeDir.path
+    for c in ["\(home)/.config/aicall/venv/bin/python3", "\(home)/.pyenv/versions/3.10.13/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
         guard FileManager.default.isExecutableFile(atPath: c) else { continue }
         let t = Process(); t.executableURL = URL(fileURLWithPath: c); t.arguments = ["-c", "import websockets"]
         t.standardError = FileHandle.nullDevice; t.standardOutput = FileHandle.nullDevice
@@ -18,7 +19,7 @@ let pythonPath: String = {
     }
     return "/usr/bin/python3"
 }()
-let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/AICall")
+let support = homeDir.appendingPathComponent("Library/Application Support/AICall")
 try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
 // 실제 통화는 한 가지다. ARS인지 사람인지는 받은 뒤 첫마디로 엔진이 가른다(live.py 하이브리드, 11-14 탭 통합)
@@ -32,7 +33,14 @@ let defaultTask: [Mode: String] = [
 ]
 let systemMic = "시스템 기본"
 
-// 입력한 숫자를 전화번호 모양으로 묶는다 (010-1234-5678, 02-123-4567, 1588-1234). 걸기 전에 번호를 눈으로 확인하게
+// 어떻게 입력하든 국내 번호 숫자로: +82 10 …, 82-10-…, (010) … → 010… (aicall norm_phone과 같은 규칙)
+func digitsOnly(_ s: String) -> String {
+    var d = s.filter(\.isNumber)
+    if d.hasPrefix("82"), d.count >= 10 { d = "0" + String(d.dropFirst(2).drop(while: { $0 == "0" })) }
+    return d
+}
+
+// 입력한 숫자를 전화번호 모양으로 묶는다. 걸기 전에 번호를 눈으로 확인하게
 func formatPhone(_ d: String) -> String {
     if d.count == 8, d.first == "1" { return "\(d.prefix(4))-\(d.suffix(4))" }
     let a = d.hasPrefix("02") ? 2 : 3
@@ -211,6 +219,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         let bar = NSMenu()
         let appItem = NSMenuItem(); bar.addItem(appItem)
         let appMenu = NSMenu()
+        let setItem = appMenu.addItem(withTitle: "설정…", action: #selector(openSetup), keyEquivalent: ","); setItem.target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "AI 통화 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         let editItem = NSMenuItem(); bar.addItem(editItem)
@@ -378,7 +388,10 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         let axOpts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(axOpts)
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in self.permRow.isHidden = AXIsProcessTrusted() }
+        setup.showIfNeeded(on: win)                          // 처음 설치: 키·이름·번호·의존성이 빠졌으면 설정 화면부터
     }
+    let setup = Setup()
+    @objc func openSetup() { setup.show(on: win) }
     var ringBox: NSStackView!
     var taskLineBox: NSStackView!
     var statusRow: NSStackView!
@@ -451,7 +464,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
 
     func textDidChange(_ n: Notification) { updateReady() }
     func controlTextDidChange(_ n: Notification) {
-        number.stringValue = formatPhone(String(number.stringValue.filter(\.isNumber).prefix(12))); updateReady()
+        number.stringValue = formatPhone(String(digitsOnly(number.stringValue).prefix(13))); updateReady()
     }
 
     @objc func openLog() { if let p = logPath { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } }
@@ -486,7 +499,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
             }
             let m: Mode = (j["practice"] as? Bool ?? false) ? .practice : .call   // CLI의 --speak 유무와 상관없이 같은 통화(자동 판별)
             applyMode(m, resetTask: true)
-            number.stringValue = formatPhone((j["number"] as? String ?? "").filter(\.isNumber))
+            number.stringValue = formatPhone(digitsOnly(j["number"] as? String ?? ""))
             if let t = j["task"] as? String, !t.isEmpty { task.string = t }
             handoff.state = (j["handoff"] as? Bool ?? true) ? .on : .off
             externalNext = (j["brain"] as? String) == "external"
@@ -524,7 +537,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         let practice = mode == .practice
         var num = "0"
         if !practice {
-            num = number.stringValue.filter(\.isNumber)
+            num = digitsOnly(number.stringValue)
             guard num.count >= 3, num.count <= 12 else { setStatus("번호를 확인해 주세요", Pal.red); win.makeFirstResponder(number); return }
         }
         let goal = task.string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -668,6 +681,114 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         default: break                                                // 지연·판정·사용량 같은 내부 기록은 파일에만 남긴다
         }
     }
+}
+
+// ---- 처음 설정: `aicall doctor --json`(CLI와 같은 점검)을 보여주고, 키·이름·번호를 `aicall setup`으로 저장한다
+final class Setup: NSObject {
+    let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 520), styleMask: [.titled], backing: .buffered, defer: false)
+    let checks = NSStackView()
+    let key = NSSecureTextField(string: "")
+    let name = NSTextField(string: "")
+    let phone = NSTextField(string: "")
+    let err = label("", 12, Pal.red, wrap: true)
+    var parent: NSWindow?
+
+    func run(_ args: [String]) -> (Int32, Data) {
+        let t = Process(); t.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        t.arguments = [res + "/aicall"] + args
+        let o = Pipe(); t.standardOutput = o; t.standardError = FileHandle.nullDevice
+        guard (try? t.run()) != nil else { return (-1, Data()) }
+        let d = o.fileHandleForReading.readDataToEndOfFile(); t.waitUntilExit()
+        return (t.terminationStatus, d)
+    }
+    func doctor() -> [[String: Any]] {
+        var r = (try? JSONSerialization.jsonObject(with: run(["doctor", "--json"]).1) as? [[String: Any]]) ?? []
+        r.append(["id": "ax", "name": "손쉬운 사용 권한 (키패드 누르기)", "ok": AXIsProcessTrusted(), "fix": "시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 AI 통화를 켜요"])
+        return r
+    }
+    func showIfNeeded(on w: NSWindow) { if doctor().contains(where: { !($0["ok"] as? Bool ?? false) }) { show(on: w) } }
+
+    func field(_ f: NSTextField, _ title: String, _ ph: String) -> NSView {
+        f.placeholderString = ph; f.font = .systemFont(ofSize: 13); f.bezelStyle = .roundedBezel; f.focusRingType = .none
+        let s = NSStackView(views: [label(title, 11, Pal.sub, .medium), f]); s.orientation = .vertical; s.alignment = .leading; s.spacing = 4
+        f.translatesAutoresizingMaskIntoConstraints = false; f.widthAnchor.constraint(equalToConstant: 316).isActive = true
+        return s
+    }
+
+    func show(on w: NSWindow) {
+        parent = w
+        if panel.contentView?.subviews.isEmpty ?? true { build() }
+        refresh()
+        if let v = panel.contentView?.subviews.first { panel.setContentSize(v.fittingSize) }   // 점검 줄 수에 맞춰 높이를 정한다
+        if panel.sheetParent == nil { w.beginSheet(panel) }
+    }
+
+    func build() {
+        panel.appearance = NSAppearance(named: .darkAqua); panel.backgroundColor = Pal.bg
+        let icon = NSImageView(image: sym("phone.badge.checkmark", 26) ?? NSImage()); icon.contentTintColor = Pal.green
+        let title = label("처음 설정", 17, Pal.text, .semibold)
+        let sub = label("AI가 내 번호로 전화하려면 아래가 준비돼야 해요.\n키와 내 정보는 여기서 넣고, 나머지는 안내된 명령으로 고쳐요.", 12, Pal.sub, wrap: true)
+        sub.preferredMaxLayoutWidth = 316
+        checks.orientation = .vertical; checks.alignment = .leading; checks.spacing = 7
+        let card = NSStackView(views: [checks]); card.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        card.wantsLayer = true; card.layer?.backgroundColor = Pal.surface.cgColor; card.layer?.cornerRadius = 10
+        let c = (try? JSONSerialization.jsonObject(with: (try? Data(contentsOf: support.appendingPathComponent("config.json"))) ?? Data()) as? [String: Any]) ?? [:]
+        name.stringValue = c["owner_name"] as? String ?? ""; phone.stringValue = c["owner_phone"] as? String ?? ""
+        let keyNote = label("키는 이 맥의 ~/.config/aicall/.env 에만 저장돼요. 비워 두면 기존 키를 그대로 써요.", 11, Pal.faint, wrap: true)
+        keyNote.preferredMaxLayoutWidth = 316
+        let later = NSButton(title: "나중에", target: self, action: #selector(close)); later.bezelStyle = .rounded
+        let save = NSButton(title: "저장", target: self, action: #selector(saveTapped)); save.bezelStyle = .rounded; save.keyEquivalent = "\r"
+        let btns = NSStackView(views: [NSView(), later, save]); btns.spacing = 8
+        err.preferredMaxLayoutWidth = 316
+        let stack = NSStackView(views: [icon, title, sub, card,
+                                        field(key, "OpenAI API 키", "sk-…"), keyNote,
+                                        field(name, "전화에서 밝힐 내 이름", ""),
+                                        field(phone, "내 휴대폰 번호 (이 번호로 걸려요)", ""), err, btns])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
+        stack.setCustomSpacing(4, after: icon); stack.setCustomSpacing(14, after: sub); stack.setCustomSpacing(16, after: card); stack.setCustomSpacing(4, after: stack.views[4])
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 32, bottom: 20, right: 32)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        let v = panel.contentView!; v.addSubview(stack)
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: v.leadingAnchor), stack.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+                                     stack.topAnchor.constraint(equalTo: v.topAnchor), stack.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+                                     card.widthAnchor.constraint(equalToConstant: 316), btns.widthAnchor.constraint(equalToConstant: 316)])
+    }
+
+    func refresh() {
+        checks.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for r in doctor() {
+            let ok = r["ok"] as? Bool ?? false
+            let mark = NSImageView(image: sym(ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill", 13) ?? NSImage())
+            mark.contentTintColor = ok ? Pal.green : Pal.orange
+            let n = label(r["name"] as? String ?? "", 12, ok ? Pal.sub : Pal.text, ok ? .regular : .medium)
+            let row = NSStackView(views: [mark, n]); row.spacing = 7
+            checks.addArrangedSubview(row)
+            if !ok, let fix = r["fix"] as? String, !["key", "owner"].contains(r["id"] as? String ?? "") {
+                let f = label(fix, 11, Pal.sub, wrap: true); f.isSelectable = true
+                f.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular); f.preferredMaxLayoutWidth = 270
+                let fr = NSStackView(views: [f]); fr.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 2, right: 0)
+                checks.addArrangedSubview(fr)
+            }
+        }
+    }
+
+    @objc func saveTapped() {
+        var a = ["setup"]
+        let k = key.stringValue.trimmingCharacters(in: .whitespaces)
+        if !k.isEmpty { a += ["--key", k] }
+        if !name.stringValue.isEmpty { a += ["--name", name.stringValue] }
+        if !phone.stringValue.isEmpty { a += ["--phone", phone.stringValue] }
+        let (code, out) = run(a)
+        if code != 0 {
+            let j = (try? JSONSerialization.jsonObject(with: out) as? [String: Any]) ?? [:]
+            err.stringValue = j["error"] as? String ?? "저장하지 못했어요"; return
+        }
+        err.stringValue = ""; key.stringValue = ""
+        refresh()
+        if let v = panel.contentView?.subviews.first { panel.setContentSize(v.fittingSize) }
+        if !doctor().contains(where: { !($0["ok"] as? Bool ?? false) }) { close() }
+    }
+    @objc func close() { parent?.endSheet(panel) }
 }
 
 let app = NSApplication.shared

@@ -112,13 +112,30 @@ def openai(path, body, raw=False):
 KO_DIGITS = "공일이삼사오육칠팔구"
 
 
+def norm_phone(s):
+    """어떻게 쓰든 국내 번호 숫자로 맞춘다: +82-10-…, 82 10 …, (010) …, 010.…, 010 … → 010…  (+82 뒤 0이 있어도 됨)"""
+    d = re.sub(r"\D", "", s or "")
+    if d.startswith("82") and len(d) >= 10:   # 국내 번호는 8로 시작하지 않는다 → 82로 시작하면 국가번호
+        d = "0" + d[2:].lstrip("0")
+    return d
+
+
+def group_phone(d):
+    """읽어 줄 때 쓰는 묶음: 휴대폰 3-4-4, 서울 2-3/4-4, 대표번호 4-4"""
+    if len(d) == 8:
+        return f"{d[:4]}-{d[4:]}"
+    a = 2 if d.startswith("02") else 3
+    mid = 4 if len(d) - a >= 8 else 3
+    return "-".join(x for x in (d[:a], d[a:a + mid], d[a + mid:]) if x)
+
+
 def owner_fields(cfg):
-    """설정의 사용자 이름·번호를 지시문에 넣을 꼴로 만든다. config.json: {"owner_name": "홍길동", "owner_phone": "010-1234-5678"}"""
-    name, ph = (cfg.get("owner_name") or "").strip(), (cfg.get("owner_phone") or "").strip()
-    if not name or not re.sub(r"\D", "", ph):
-        raise SystemExit("config.json에 owner_name·owner_phone을 넣어 주세요 (예: {\"owner_name\": \"홍길동\", \"owner_phone\": \"010-1234-5678\"})")
-    digits = re.sub(r"\D", "", ph)
-    groups = re.findall(r"\d+", ph) if "-" in ph or " " in ph else [digits]
+    """설정의 사용자 이름·번호(config.json owner_name·owner_phone)를 지시문에 넣을 꼴로 만든다. 번호는 어떤 꼴로 적어도 된다."""
+    name, digits = (cfg.get("owner_name") or "").strip(), norm_phone(cfg.get("owner_phone"))
+    if not name or len(digits) < 8:
+        raise SystemExit("내 이름·휴대폰 번호가 설정되지 않았어요 — 앱의 설정 화면 또는 aicall setup")
+    ph = group_phone(digits)
+    groups = ph.split("-")
     return {"owner_name": name, "owner_phone": ph, "owner_digits": digits,
             "owner_phone_ko": " ".join("".join(KO_DIGITS[int(c)] for c in g) for g in groups)}
 
@@ -138,7 +155,7 @@ PHONE_MIC = "AICall Mic"       # 전화 앱 마이크. 입력 전용 1채널 (Bl
 class Call:
     def __init__(self, a, cfg):
         self.a, self.cfg = a, cfg
-        self.num = re.sub(r"\D", "", a.number)
+        self.num = norm_phone(a.number)
         self.events, self.cv = [], threading.Condition()
         self.convo, self.presses = [], []
         self.speaking_until = 0.0

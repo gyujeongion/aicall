@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1010 540" width="1010" height="540" role="img" aria-labelledby="t d">
+  <title id="t">How AICall places a call</title>
+  <desc id="d">AICall drives the built-in macOS 27 Phone app, which calls through your iPhone. Call audio is tapped and sent to a realtime voice model; the AI's voice goes back into the Phone app through a virtual microphone.</desc>
+  <style>
+    :root { --fill:#ffffff; --mac:#f6f8fa; --stroke:#d0d7de; --text:#1f2328; --muted:#59636e; --ctl:#59636e; --in:#1a7f37; --out:#0969da; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fill:#161b22; --mac:#0d1117; --stroke:#3d444d; --text:#e6edf3; --muted:#9198a1; --ctl:#9198a1; --in:#3fb950; --out:#4493f8; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif; fill: var(--text); }
+    .box { fill: var(--fill); stroke: var(--stroke); stroke-width: 1.2; }
+    .mac { fill: var(--mac); stroke: var(--stroke); stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .h { font-size: 15px; font-weight: 600; }
+    .s { font-size: 11.5px; fill: var(--muted); }
+    .l { font-size: 11.5px; fill: var(--muted); }
+    .li { font-size: 11.5px; fill: var(--in); font-weight: 600; }
+    .lo { font-size: 11.5px; fill: var(--out); font-weight: 600; }
+    .ctl { fill: none; stroke: var(--ctl); stroke-width: 1.6; }
+    .in  { fill: none; stroke: var(--in);  stroke-width: 2.2; }
+    .out { fill: none; stroke: var(--out); stroke-width: 2.2; }
+    .ah-ctl { fill: var(--ctl); } .ah-in { fill: var(--in); } .ah-out { fill: var(--out); }
+  </style>
+  <defs>
+    <marker id="mc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-ctl"/></marker>
+    <marker id="mi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-in"/></marker>
+    <marker id="mo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-out"/></marker>
+  </defs>
+
+  <!-- cloud -->
+  <rect class="box" x="50" y="20" width="330" height="66" rx="12"/>
+  <text class="h" x="68" y="47">OpenAI</text>
+  <text class="s" x="68" y="68">GPT-Live realtime voice · judge model for menus</text>
+
+  <!-- Mac -->
+  <rect class="mac" x="20" y="118" width="628" height="400" rx="18"/>
+  <text class="l" x="40" y="142" font-weight="600">Your Mac</text>
+
+  <rect class="box" x="50" y="180" width="230" height="100" rx="12"/>
+  <text class="h" x="68" y="212">AICall</text>
+  <text class="s" x="68" y="233">app · CLI · MCP · call engine</text>
+  <text class="s" x="68" y="252">menu → press keys</text>
+  <text class="s" x="68" y="269">person → talk</text>
+
+  <rect class="box" x="420" y="180" width="210" height="100" rx="12"/>
+  <text class="h" x="438" y="212">Phone app</text>
+  <text class="s" x="438" y="233">built into macOS 27</text>
+  <text class="s" x="438" y="252">no VoIP, no extra number</text>
+
+  <rect class="box" x="230" y="320" width="220" height="60" rx="10"/>
+  <text class="h" x="246" y="345" font-size="13.5">AICall Speaker → Mic</text>
+  <text class="s" x="246" y="364">virtual audio pair</text>
+
+  <rect class="box" x="230" y="430" width="220" height="60" rx="10"/>
+  <text class="h" x="246" y="455" font-size="13.5">Call-audio tap</text>
+  <text class="s" x="246" y="474">Core Audio process tap</text>
+
+  <!-- iPhone + callee -->
+  <rect class="box" x="720" y="180" width="130" height="100" rx="18"/>
+  <text class="h" x="738" y="212">iPhone</text>
+  <text class="s" x="738" y="233">your own number</text>
+
+  <rect class="box" x="890" y="180" width="105" height="100" rx="12"/>
+  <text class="h" x="906" y="212">Callee</text>
+  <text class="s" x="906" y="233">phone menu</text>
+  <text class="s" x="906" y="250">or a person</text>
+
+  <!-- control -->
+  <path class="ctl" d="M165 178 V 90" marker-start="url(#mc)" marker-end="url(#mc)"/>
+  <text class="l" x="175" y="140">realtime speech</text>
+  <path class="ctl" d="M282 222 H 416" marker-end="url(#mc)"/>
+  <text class="l" x="292" y="212">dial, keys, hang up</text>
+  <text class="s" x="292" y="242">Accessibility</text>
+  <path class="ctl" d="M632 230 H 716" marker-start="url(#mc)" marker-end="url(#mc)"/>
+  <text class="l" x="684" y="219" text-anchor="middle">Continuity</text>
+  <path class="ctl" d="M852 230 H 886" marker-start="url(#mc)" marker-end="url(#mc)"/>
+
+  <!-- their voice: Phone app → tap → AICall -->
+  <path class="in" d="M570 282 V 460 H 454" marker-end="url(#mi)"/>
+  <text class="li" x="578" y="400">their voice</text>
+  <path class="in" d="M228 460 H 120 V 284" marker-end="url(#mi)"/>
+  <text class="li" x="128" y="452">AI hears</text>
+
+  <!-- AI voice: AICall → virtual pair → Phone app mic -->
+  <path class="out" d="M180 282 V 350 H 226" marker-end="url(#mo)"/>
+  <path class="out" d="M452 350 H 500 V 284" marker-end="url(#mo)"/>
+  <text class="lo" x="188" y="312">AI voice</text>
+  <text class="s" x="456" y="372">into the call's mic</text>
+</svg>

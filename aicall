@@ -5,6 +5,8 @@
   aicall events [--since N] [--wait 10]      # 새 발화·상태 이벤트 (JSON)
   aicall press 1        aicall say "안녕하세요"        aicall end success "요약"
   aicall status         aicall config [--llm openai:gpt-6-luna] [--tts say:Yuna]
+  aicall doctor [--json]                      # 설치·설정 점검 (무엇이 빠졌고 어떻게 고치는지)
+  aicall setup [--key sk-...] [--name 이름] [--phone 번호]   # API 키·내 이름·번호 저장 (빠진 값은 물어본다)
 
 brain=auto     : 앱 내장 LLM이 판단 (빠름, ARS에 적합). 에이전트는 events로 지켜보다 필요하면 끼어든다.
 brain=external : 판단을 에이전트가 한다 (구독 쿼터 사용). events → 판단 → press/say/end 반복.
@@ -58,6 +60,72 @@ def api(method, path, body=None, timeout=60, session=None):
     return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
 
 
+CONF_DIR = os.path.expanduser("~/.config/aicall")
+ENV_FILE = f"{CONF_DIR}/.env"
+PY_CANDIDATES = [f"{CONF_DIR}/venv/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]   # 앱(AICall.swift)과 같은 순서
+INSTALL = "curl -fsSL https://raw.githubusercontent.com/gyujeongion/aicall/main/install.sh | zsh"
+
+
+def norm_phone(s):
+    """어떻게 쓰든 국내 번호 숫자로 맞춘다: +82-10-…, 82 10 …, (010) …, 010.…, 010 … → 010…  (+82 뒤 0이 있어도 됨)"""
+    d = re.sub(r"\D", "", s or "")
+    if d.startswith("82") and len(d) >= 10:   # 국내 번호는 8로 시작하지 않는다 → 82로 시작하면 국가번호
+        d = "0" + d[2:].lstrip("0")
+    return d
+
+
+def read_key():
+    """엔진(agent.py KEY_FILES)과 같은 순서로 OpenAI 키를 찾는다."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return os.environ["OPENAI_API_KEY"]
+    for f in (os.environ.get("AICALL_ENV_FILE", ""), f"{DATA}/.env", ENV_FILE):
+        if f and os.path.isfile(f):
+            for line in open(f):
+                if line.startswith("OPENAI_API_KEY="):
+                    v = line.split("=", 1)[1].strip().strip('"')
+                    if v:
+                        return v
+    return ""
+
+
+def checks():
+    """(이름, 통과, 고치는 법) 목록. 앱의 첫 설정 화면도 이 결과(--json)를 그대로 보여준다."""
+    path = os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin"
+    which = lambda b: any(os.access(os.path.join(d, b), os.X_OK) for d in path.split(":") if d)
+    py_ok = any(os.access(c, os.X_OK) and subprocess.run([c, "-c", "import websockets"], capture_output=True).returncode == 0 for c in PY_CANDIDATES)
+    cfg = json.load(open(CFG)) if os.path.exists(CFG) else {}
+    return [
+        ("app", "AICall 앱", os.path.isdir("/Applications/AICall.app"), INSTALL),
+        ("python", "Python + websockets", py_ok, f"python3 -m venv {CONF_DIR}/venv && {CONF_DIR}/venv/bin/pip install websockets"),
+        ("sox", "sox (오디오 입출력)", which("sox"), "brew install sox"),
+        ("ffmpeg", "ffmpeg (녹음 저장)", which("ffmpeg"), "brew install ffmpeg"),
+        ("driver", "AICall Mic/Speaker 가상 장치", os.path.isdir("/Library/Audio/Plug-Ins/HAL/AICall.driver"), INSTALL),
+        ("key", "OpenAI API 키", bool(read_key()), "aicall setup --key sk-..."),
+        ("owner", "내 이름·휴대폰 번호", bool(cfg.get("owner_name") and len(norm_phone(cfg.get("owner_phone"))) >= 8), "aicall setup"),
+    ]
+
+
+def setup(key, name, phone):
+    """키는 ~/.config/aicall/.env(본인만 읽기), 이름·번호는 앱 설정(config.json)에 저장한다. 다른 줄은 건드리지 않는다."""
+    if key:
+        if not key.startswith("sk-"):
+            sys.exit(json.dumps({"error": "OpenAI API 키는 sk- 로 시작해요"}, ensure_ascii=False))
+        os.makedirs(CONF_DIR, exist_ok=True)
+        lines = [l for l in open(ENV_FILE)] if os.path.isfile(ENV_FILE) else []
+        if f"OPENAI_API_KEY={key}\n" not in lines:
+            lines = [l for l in lines if not l.startswith("OPENAI_API_KEY=")] + [f"OPENAI_API_KEY={key}\n"]
+            with open(ENV_FILE, "w") as f:
+                f.writelines(lines)
+            os.chmod(os.path.realpath(ENV_FILE), 0o600)
+    if name or phone:
+        if phone and not 8 <= len(norm_phone(phone)) <= 15:
+            sys.exit(json.dumps({"error": "휴대폰 번호를 확인해 주세요"}, ensure_ascii=False))
+        c = json.load(open(CFG)) if os.path.exists(CFG) else {}
+        if name: c["owner_name"] = name.strip()
+        if phone: c["owner_phone"] = norm_phone(phone)   # 숫자만 저장 (+82·하이픈·공백 무엇이든 받는다)
+        os.makedirs(DATA, exist_ok=True); json.dump(c, open(CFG, "w"), ensure_ascii=False, indent=2)
+
+
 def out(o):
     print(json.dumps(o, ensure_ascii=False, indent=None))
 
@@ -78,8 +146,8 @@ def main():
         if state():
             sys.exit(json.dumps({"error": "이미 통화 중", "state": state()}, ensure_ascii=False))
         num, task = a[1], a[2]
-        digits = re.sub(r"[\s()-]", "", num)
-        if (not flag("--practice") and not re.fullmatch(r"[0-9]{3,12}", digits)) or not task.strip():
+        num = norm_phone(num) or num
+        if (not flag("--practice") and not re.fullmatch(r"[0-9]{3,12}", num)) or not task.strip():
             sys.exit(json.dumps({"error": "번호와 용건을 확인해 주세요"}, ensure_ascii=False))
         if opt("--brain", "auto") not in ("auto", "external"):
             sys.exit(json.dumps({"error": "brain은 auto 또는 external"}, ensure_ascii=False))
@@ -141,6 +209,28 @@ def main():
             if opt("--" + k):
                 c[k] = opt("--" + k)
         os.makedirs(DATA, exist_ok=True); json.dump(c, open(CFG, "w"), ensure_ascii=False, indent=2); out(c)
+    elif cmd == "doctor":
+        res = checks()
+        if flag("--json"):
+            out([{"id": i, "name": n, "ok": ok, "fix": fix} for i, n, ok, fix in res])
+        else:
+            for _, n, ok, fix in res:
+                print(("✓ " if ok else "✗ ") + n + ("" if ok else f"\n    → {fix}"))
+            print("\n준비 완료" if all(r[2] for r in res) else "\n위 ✗ 항목을 고친 뒤 다시: aicall doctor")
+        sys.exit(0 if all(r[2] for r in res) else 1)
+    elif cmd == "setup":
+        import getpass
+        key, name, phone = opt("--key"), opt("--name"), opt("--phone")
+        interactive = not (key or name or phone) and sys.stdin.isatty()
+        cfg = json.load(open(CFG)) if os.path.exists(CFG) else {}
+        if interactive:
+            if not read_key():
+                key = getpass.getpass("OpenAI API 키 (sk-…, 화면에 안 보여요): ").strip() or None
+            name = input(f"전화에서 밝힐 내 이름 [{cfg.get('owner_name', '')}]: ").strip() or None
+            phone = input(f"내 휴대폰 번호 [{cfg.get('owner_phone', '')}]: ").strip() or None
+        setup(key, name, phone)
+        res = checks()
+        out({"saved": True, "missing": [n for _, n, ok, _ in res if not ok]})
     else:
         print(__doc__); sys.exit(2)
 

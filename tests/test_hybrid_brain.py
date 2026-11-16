@@ -25,7 +25,7 @@ def run(c):
     name, task, lines, want = c
     d = tempfile.mkdtemp(); os.makedirs(d + "/calls", exist_ok=True); os.chdir(d)
     a = argparse.Namespace(number="114", task=task, extra="", speak=True, handoff=False, brain="auto", practice=False, replay=None)
-    call = agent.Call(a, dict(agent.DEFAULTS, owner_name="홍길동", owner_phone="010-1234-5678"))
+    call = agent.Call(a, dict(agent.DEFAULTS, owner_name="사용자", owner_phone="01012345678"))
     for l in lines:
         call.convo.append(f"상대: {l}")
     got = call.decide()

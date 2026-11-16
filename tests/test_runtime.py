@@ -31,7 +31,7 @@ class RuntimeTests(unittest.TestCase):
         args = dict(number='000', task='시험', extra='', speak=True, handoff=True,
                     brain='auto', practice=False, replay=None, request_id='test-request')
         args.update(kw)
-        c = agent.Call(argparse.Namespace(**args), dict(agent.DEFAULTS, owner_name="홍길동", owner_phone="010-1234-5678"))
+        c = agent.Call(argparse.Namespace(**args), dict(agent.DEFAULTS, owner_name="사용자", owner_phone="01012345678"))
         self.addCleanup(c.logf.close)
         return c
 

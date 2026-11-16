@@ -8,8 +8,8 @@ import json, os, re, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OPT = "광고 문자 수신거부 080 ARS. 내 번호(010-1234-5678)로 광고성 문자 수신거부를 등록하고, 처리 완료 안내를 들으면 end(success)."
-ME = "0 1 0 1 2 3 4 5 6 7 8"   # 시험용 가상 사용자 번호(config 010-1234-5678)
+OPT = "광고 문자 수신거부 080 ARS. 내 번호로 광고성 문자 수신거부를 등록하고, 처리 완료 안내를 들으면 end(success)."
+ME = "0 1 0 1 2 3 4 5 6 7 8"   # 시험용 가상 사용자 번호(config 01012345678)
 OTHER = "0 1 0 9 8 7 6 5 4 3 2"
 
 def F(t, dt=0.6): return {"k": "F", "t": t, "dt": dt}
@@ -78,7 +78,7 @@ CASES = {
 def run(name, c):
     d = tempfile.mkdtemp(prefix="aicall_t_")
     ev = os.path.join(d, "ev.jsonl")
-    json.dump({"owner_name": "홍길동", "owner_phone": "010-1234-5678"}, open(os.path.join(d, "config.json"), "w"), ensure_ascii=False)   # 시험용 가상 사용자
+    json.dump({"owner_name": "사용자", "owner_phone": "01012345678"}, open(os.path.join(d, "config.json"), "w"), ensure_ascii=False)   # 시험용 가상 사용자
     open(ev, "w").write("\n".join(json.dumps(e, ensure_ascii=False) for e in c["events"]))
     cmd = [sys.executable, os.path.join(HERE, "agent.py"), "0000000000", OPT, "--replay", ev] + (["--handoff"] if c.get("handoff") else [])
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=90, env={**os.environ, "AICALL_DATA": d})

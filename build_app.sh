@@ -4,12 +4,12 @@ set -e
 cd "$(dirname "$0")"
 [ -f .build.env ] && source .build.env       # 내 서명 정보(공개 레포에 넣지 않음): AICALL_SIGN_ID, AICALL_BUNDLE_ID
 ID="${AICALL_SIGN_ID:--}"                    # 없으면 임시 서명(-). 권한을 재빌드 후에도 유지하려면 Developer ID 인증서 해시
-BID="${AICALL_BUNDLE_ID:-com.example.aicall}"
+BID="${AICALL_BUNDLE_ID:-io.github.gyujeongion.aicall}"
 APP=dist/AICall.app
 rm -rf $APP; mkdir -p $APP/Contents/MacOS $APP/Contents/Resources
 swiftc -O -target arm64-apple-macos14.4 app/AICall.swift -o $APP/Contents/MacOS/AICall
 for b in arsear phonectl; do swiftc -O -target arm64-apple-macos14.4 $b.swift -o $APP/Contents/Resources/$b; done
-cp agent.py phone.py live.py app/assets/AICall.icns $APP/Contents/Resources/
+cp agent.py phone.py live.py aicall app/assets/AICall.icns $APP/Contents/Resources/   # aicall: 첫 설정 화면이 doctor·setup으로 쓴다
 cat > $APP/Contents/Info.plist <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
