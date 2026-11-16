@@ -1,0 +1,26 @@
+# 통화 데이터·개인 기록 (공개 금지)
+calls/
+results.jsonl
+*.pcm
+*.m4a
+*.aiff
+# 빌드 산출물·바이너리
+dist/
+__pycache__/
+*.pyc
+vmic/build/
+vmic/AICall.driver/
+/arsear
+/phonectl
+# 비밀
+.env
+*.pem
+*.p12
+*credentials*.json
+*_token.json
+# 지난 실험
+_old/
+.DS_Store
+# BlackHole 원본 복제(GPL-3.0, 수정 없음 — 빌드 플래그로만 맞춤). 6008d29
+vmic/src/
+.build.env

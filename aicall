@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""aicall — AICall 앱으로 내 번호 전화를 걸고 조종하는 CLI (클로드 코드·Codex·agy 등 에이전트용).
+
+  aicall call 08085355882 "목적..." [--speak] [--practice] [--no-handoff] [--brain auto|external] [--follow]
+  aicall events [--since N] [--wait 10]      # 새 발화·상태 이벤트 (JSON)
+  aicall press 1        aicall say "안녕하세요"        aicall end success "요약"
+  aicall status         aicall config [--llm openai:gpt-6-luna] [--tts say:Yuna]
+
+brain=auto     : 앱 내장 LLM이 판단 (빠름, ARS에 적합). 에이전트는 events로 지켜보다 필요하면 끼어든다.
+brain=external : 판단을 에이전트가 한다 (구독 쿼터 사용). events → 판단 → press/say/end 반복.
+"""
+import json, os, re, subprocess, sys, time, urllib.error, urllib.request, uuid
+
+DATA = os.path.expanduser("~/Library/Application Support/AICall")
+STATE, REQ, CFG = f"{DATA}/state.json", f"{DATA}/requests", f"{DATA}/config.json"
+
+
+def alive(pid):
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0); return True
+    except OSError:
+        return False
+
+
+def state(wait=0, request_id=None):
+    end = time.time() + wait
+    while True:
+        if os.path.exists(STATE):
+            try:
+                with open(STATE) as stream:
+                    s = json.load(stream)
+                if alive(s.get("pid", 0)):
+                    if request_id is None or s.get("request_id") == request_id:
+                        return s
+            except Exception:  # noqa: BLE001
+                pass
+        if time.time() >= end:
+            return None
+        if request_id:
+            reply = f"{REQ}/{request_id}.reply"
+            if os.path.exists(reply):
+                try:
+                    return {"error": json.load(open(reply)).get("error", "요청 실패")}
+                finally:
+                    os.remove(reply)
+        time.sleep(0.2)
+
+
+def api(method, path, body=None, timeout=60, session=None):
+    s = session if session is not None else state()
+    if not s:
+        sys.exit(json.dumps({"error": "진행 중인 통화 없음"}, ensure_ascii=False))
+    req = urllib.request.Request(f"http://127.0.0.1:{s['port']}{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Content-Type": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
+
+
+def out(o):
+    print(json.dumps(o, ensure_ascii=False, indent=None))
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__); return
+    cmd = a[0]
+    if cmd in ("press", "say") and len(a) < 2:
+        sys.exit(json.dumps({"error": f"{cmd}에 입력값이 필요합니다"}, ensure_ascii=False))
+    flag = lambda f: f in a
+    opt = lambda f, d=None: a[a.index(f) + 1] if f in a and a.index(f) + 1 < len(a) else d
+
+    if cmd == "call":
+        if len(a) < 3:
+            sys.exit(json.dumps({"error": "사용법: aicall call 번호 용건"}, ensure_ascii=False))
+        if state():
+            sys.exit(json.dumps({"error": "이미 통화 중", "state": state()}, ensure_ascii=False))
+        num, task = a[1], a[2]
+        digits = re.sub(r"[\s()-]", "", num)
+        if (not flag("--practice") and not re.fullmatch(r"[0-9]{3,12}", digits)) or not task.strip():
+            sys.exit(json.dumps({"error": "번호와 용건을 확인해 주세요"}, ensure_ascii=False))
+        if opt("--brain", "auto") not in ("auto", "external"):
+            sys.exit(json.dumps({"error": "brain은 auto 또는 external"}, ensure_ascii=False))
+        os.makedirs(REQ, exist_ok=True)
+        rid = uuid.uuid4().hex[:8]
+        req = {"number": num, "task": task, "speak": flag("--speak"), "practice": flag("--practice"), "handoff": not flag("--no-handoff"),
+               "brain": opt("--brain", "auto"), "request_id": rid, "expires_at": time.time() + 30}
+        json.dump(req, open(f"{REQ}/{rid}.tmp", "w"), ensure_ascii=False)
+        os.rename(f"{REQ}/{rid}.tmp", f"{REQ}/{rid}.json")
+        launched = subprocess.run(["open", "-g", "-a", "AICall"], capture_output=True)
+        s = state(wait=25, request_id=rid) if launched.returncode == 0 else None
+        if not s or s.get("error"):
+            try:
+                os.remove(f"{REQ}/{rid}.json")
+            except FileNotFoundError:
+                pass
+            if s and s.get("error"):
+                sys.exit(json.dumps(s, ensure_ascii=False))
+            sys.exit(json.dumps({"error": "앱이 요청을 받지 않음 (AICall 실행·권한 확인)"}, ensure_ascii=False))
+        out({"started": True, "stage": "preflight", **s})
+        if flag("--follow"):
+            since = 0
+            final_outcome = None
+            while True:
+                try:
+                    r = api("GET", f"/events?since={since}&wait=15", session=s)
+                except (OSError, ValueError):
+                    # 엔진이 먼저 종료됐어도 최종 결과는 해당 통화 기록에서 회수한다.
+                    log = s.get("log", "")
+                    text = open(log).read() if os.path.isfile(log) else ""
+                    result = re.search(r"^결과: (.+)$", text, re.M)
+                    if result:
+                        print("결과: " + result[1], flush=True)
+                        final_outcome = result[1].split()[0]
+                        break
+                    sys.exit(json.dumps({"error": "통화 엔진 연결 종료 — 기록 확인", "log": log}, ensure_ascii=False))
+                for e in r["events"]:
+                    print(f"{e['t']} {e['tag']}: {e['text']}", flush=True)
+                    if e['tag'] == '결과':
+                        final_outcome = e['text'].split()[0]
+                since = r["next"]
+                if r["ended"]:
+                    break
+            if final_outcome != "success":
+                sys.exit(1)
+    elif cmd == "events":
+        out(api("GET", f"/events?since={opt('--since', '0')}&wait={opt('--wait', '10')}"))
+    elif cmd == "press":
+        out(api("POST", "/press", {"keys": a[1]}))
+    elif cmd == "say":
+        out(api("POST", "/say", {"text": a[1]}))
+    elif cmd == "end":
+        out(api("POST", "/end", {"outcome": a[1] if len(a) > 1 else "success", "summary": a[2] if len(a) > 2 else ""}))
+    elif cmd == "status":
+        s = state(); out(api("GET", "/status") if s else {"active": False})
+    elif cmd == "config":
+        c = json.load(open(CFG)) if os.path.exists(CFG) else {}
+        for k in ("stt", "llm", "tts"):
+            if opt("--" + k):
+                c[k] = opt("--" + k)
+        os.makedirs(DATA, exist_ok=True); json.dump(c, open(CFG, "w"), ensure_ascii=False, indent=2); out(c)
+    else:
+        print(__doc__); sys.exit(2)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, IndexError) as e:
+        sys.exit(json.dumps({"error": str(e)}, ensure_ascii=False))
