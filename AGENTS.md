@@ -25,6 +25,7 @@ Where things live:
 | Call transcripts / recordings | `~/Library/Application Support/AICall/calls/` |
 | Source (installer) | `~/.local/share/aicall` |
 | Python env | `~/.config/aicall/venv` |
+| Local signing keychain | `~/.config/aicall/signing/` — a self-signed identity made on first build so permissions survive rebuilds |
 
 ## Calling by name
 

@@ -1,9 +1,30 @@
 #!/bin/zsh
-# AI 통화 앱 빌드: dist/AICall.app (Developer ID 서명 — 권한을 한 번만 주면 재빌드해도 유지)
+# AI 통화 앱 빌드: dist/AICall.app — 같은 서명으로 계속 빌드해야 권한(기기 제어·오디오·마이크)이 재빌드 후에도 유지된다
 set -e
 cd "$(dirname "$0")"
 [ -f .build.env ] && source .build.env       # 내 서명 정보(공개 레포에 넣지 않음): AICALL_SIGN_ID, AICALL_BUNDLE_ID
-ID="${AICALL_SIGN_ID:--}"                    # 없으면 임시 서명(-). 권한을 재빌드 후에도 유지하려면 Developer ID 인증서 해시
+ID="${AICALL_SIGN_ID:-}"                     # 개발자 인증서가 있으면 그 해시. 없으면 아래 '이 맥 전용 서명'
+KC=()
+if [ -z "$ID" ]; then
+  # 이 맥 전용 자체 서명 인증서를 한 번 만들어 전용 키체인에 둔다. 임시 서명(-)은 빌드마다 앱이 달라져 권한이 풀린다
+  SD="$HOME/.config/aicall/signing"; KCF="$SD/aicall.keychain-db"; CN="AICall Local Signing"
+  mkdir -p "$SD"; chmod 700 "$SD"
+  if [ ! -f "$KCF" ]; then
+    /usr/bin/openssl rand -hex 16 > "$SD/pass"; chmod 600 "$SD/pass"
+    T=$(mktemp -d)
+    /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 7300 -subj "/CN=$CN" -keyout "$T/k.pem" -out "$T/c.pem" \
+      -addext "extendedKeyUsage=codeSigning" -addext "keyUsage=critical,digitalSignature" -addext "basicConstraints=critical,CA:false" 2>/dev/null
+    /usr/bin/openssl pkcs12 -export -inkey "$T/k.pem" -in "$T/c.pem" -out "$T/c.p12" -passout pass:aicall
+    security create-keychain -p "$(cat "$SD/pass")" "$KCF"
+    security set-keychain-settings "$KCF"      # 자동 잠금 없음
+    security unlock-keychain -p "$(cat "$SD/pass")" "$KCF"
+    security import "$T/c.p12" -k "$KCF" -P aicall -T /usr/bin/codesign >/dev/null
+    security set-key-partition-list -S apple-tool:,apple: -s -k "$(cat "$SD/pass")" "$KCF" >/dev/null
+    rm -rf "$T"
+  fi
+  security unlock-keychain -p "$(cat "$SD/pass")" "$KCF"
+  ID="$CN"; KC=(--keychain "$KCF")
+fi
 BID="${AICALL_BUNDLE_ID:-io.github.gyujeongion.aicall}"
 APP=dist/AICall.app
 rm -rf $APP; mkdir -p $APP/Contents/MacOS $APP/Contents/Resources
@@ -31,6 +52,6 @@ cat > $APP/Contents/Info.plist <<PL
 <key>NSMicrophoneUsageDescription</key><string>통화 소리를 듣고 받아쓰기 위해 가상 오디오 장치(BlackHole) 입력을 읽습니다.</string>
 </dict></plist>
 PL
-for b in arsear phonectl; do codesign -f -s "$ID" -i $BID.$b $APP/Contents/Resources/$b; done
-codesign -f -s "$ID" $APP
-codesign -dv $APP 2>&1 | grep -E "Authority=Developer|Identifier"
+for b in arsear phonectl; do codesign -f -s "$ID" "${KC[@]}" -i $BID.$b $APP/Contents/Resources/$b; done
+codesign -f -s "$ID" "${KC[@]}" $APP
+codesign -dv $APP 2>&1 | grep -E "Authority=|Identifier"
