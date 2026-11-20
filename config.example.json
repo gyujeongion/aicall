@@ -3,5 +3,5 @@
   "owner_phone": "",
   "llm": "openai:gpt-6-luna",
   "record": false,
-  "monitor": true
+  "monitor": false
 }

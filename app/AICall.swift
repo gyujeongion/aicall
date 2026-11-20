@@ -12,7 +12,7 @@ let homeDir = ProcessInfo.processInfo.environment["HOME"].map { URL(fileURLWithP
 // 엔진에 필요한 모듈이 있는 파이썬을 찾는다
 let pythonPath: String = {
     let home = homeDir.path
-    for c in ["\(home)/.config/aicall/venv/bin/python3", "\(home)/.pyenv/versions/3.10.13/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
+    for c in ["\(home)/.config/aicall/venv/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"] {
         guard FileManager.default.isExecutableFile(atPath: c) else { continue }
         let t = Process(); t.executableURL = URL(fileURLWithPath: c); t.arguments = ["-c", "import websockets"]
         t.standardError = FileHandle.nullDevice; t.standardOutput = FileHandle.nullDevice

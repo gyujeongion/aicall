@@ -147,7 +147,7 @@ class Session:
         self.monitor, self.mon, self.mon_q = None, None, None   # monitor: AI 음성을 사용자 스피커로도 내보내는 명령
         self.mon_on = False                    # 지금 스피커로도 내보내는가 (통화 중 앱에서 바꿀 수 있다)
         self.src = self.out = None
-        self.ready, self.closed = asyncio.Event(), asyncio.Event()
+        self.ready = self.closed = None        # run()에서 만든다: 파이썬 3.9는 Event를 만든 시점의 루프에 묶는다
 
     # ---- 재생: 받은 음성을 순서대로 내보낸다 (실제 재생 끝 시각을 스스로 계산한다)
     def _writer(self):
@@ -433,6 +433,7 @@ class Session:
     async def run(self, is_phone):
         if self.call.done.is_set():
             return
+        self.ready, self.closed = asyncio.Event(), asyncio.Event()
         self.src = subprocess.Popen(self.src_cmd, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, env=self.src_env, start_new_session=True)
         self.out = subprocess.Popen(self.out_cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, start_new_session=True)
         threading.Thread(target=self._writer, daemon=True).start()
