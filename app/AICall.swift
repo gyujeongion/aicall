@@ -95,6 +95,24 @@ enum Book {
 }
 
 // 디자인 토큰. 강조색은 통화 약속 색(걸기 초록·끊기 빨강)과 넘겨받기 주황뿐. 글꼴은 시스템 한 벌, 숫자만 고정폭 숫자
+// 최근 통화: 기록 파일(calls/*.md)의 번호·용건·결과. 같은 번호·용건은 한 번만, 화면 점검용 재생은 뺀다
+struct Past { let number: String; let task: String; let outcome: String }
+func recentCalls(_ n: Int) -> [Past] {
+    let dir = support.appendingPathComponent("calls")
+    let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".md") }.sorted(by: >)
+    var out: [Past] = []
+    for f in files.prefix(40) where out.count < n {
+        let num = String(f.dropLast(3).split(separator: "_").last ?? "")
+        guard num.count >= 3, let s = try? String(contentsOf: dir.appendingPathComponent(f), encoding: .utf8), !s.contains(" 재생: ") else { continue }
+        let parts = s.components(separatedBy: "\n\n")
+        guard parts.count > 1, parts[1].hasPrefix("용건: ") else { continue }
+        let task = String(parts[1].dropFirst(4))
+        let end = s.split(separator: "\n").last { $0.hasPrefix("결과: ") }.map { String($0.dropFirst(4).prefix { $0 != " " }) } ?? ""
+        if !out.contains(where: { $0.number == num && $0.task == task }) { out.append(Past(number: num, task: task, outcome: end)) }
+    }
+    return out
+}
+
 enum Pal {
     static func hex(_ v: UInt32) -> NSColor { NSColor(srgbRed: CGFloat(v >> 16 & 255) / 255, green: CGFloat(v >> 8 & 255) / 255, blue: CGFloat(v & 255) / 255, alpha: 1) }
     static let bg = hex(0x0C0C0D)        // 바탕 (통화 화면)
@@ -223,6 +241,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
     let opts = NSStackView()
     // 가운데: 단계마다 하나만 보인다
     let hint = label("", 12, Pal.faint, wrap: true)
+    let recent = NSStackView()                      // 대기 화면: 최근 통화를 누르면 번호·용건이 다시 채워진다
+    var past: [Past] = []
     let ring = Ring()
     let ringNote = label("받으면 첫마디로 자동 안내인지 사람인지 가려요", 11, Pal.faint)
     let banner = NSView()
@@ -385,10 +405,12 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         // 가운데 칸: 대기 안내 / 고리 / 말풍선 / 결과 중 하나
         let middle = NSView()
         let ringBox = NSStackView(views: [ring, ringNote]); ringBox.orientation = .vertical; ringBox.spacing = 14
-        for x in [hint, ringBox, chatScroll, result] as [NSView] { x.translatesAutoresizingMaskIntoConstraints = false; middle.addSubview(x) }
+        recent.orientation = .vertical; recent.alignment = .leading; recent.spacing = 5
+        let idleBox = NSStackView(views: [recent, hint]); idleBox.orientation = .vertical; idleBox.spacing = 22
+        for x in [idleBox, ringBox, chatScroll, result] as [NSView] { x.translatesAutoresizingMaskIntoConstraints = false; middle.addSubview(x) }
         NSLayoutConstraint.activate([
-            hint.centerXAnchor.constraint(equalTo: middle.centerXAnchor), hint.centerYAnchor.constraint(equalTo: middle.centerYAnchor),
-            hint.widthAnchor.constraint(lessThanOrEqualTo: middle.widthAnchor, constant: -24),
+            idleBox.centerXAnchor.constraint(equalTo: middle.centerXAnchor), idleBox.centerYAnchor.constraint(equalTo: middle.centerYAnchor),
+            idleBox.widthAnchor.constraint(equalTo: middle.widthAnchor, constant: -24), recent.widthAnchor.constraint(equalTo: idleBox.widthAnchor),
             ringBox.centerXAnchor.constraint(equalTo: middle.centerXAnchor), ringBox.centerYAnchor.constraint(equalTo: middle.centerYAnchor),
             chatScroll.leadingAnchor.constraint(equalTo: middle.leadingAnchor), chatScroll.trailingAnchor.constraint(equalTo: middle.trailingAnchor),
             chatScroll.topAnchor.constraint(equalTo: middle.topAnchor), chatScroll.bottomAnchor.constraint(equalTo: middle.bottomAnchor),
@@ -474,6 +496,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         handoff.isHidden = practice
         if p != .talking { banner.isHidden = true }
         hint.isHidden = p != .idle
+        if p == .idle && !practice { loadRecent() } else { recent.isHidden = true }
         ringBox.isHidden = p != .dialing
         if p == .dialing { ring.start() } else { ring.stop() }
         chatScroll.isHidden = !(p == .talking || (p == .done && showingChat))
@@ -506,7 +529,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         let ready = (practice || named) && !task.string.trimmingCharacters(in: .whitespaces).isEmpty
         taskHint.isHidden = !task.string.isEmpty
         callKey.alphaValue = ready ? 1 : 0.35
-        hint.stringValue = ready ? "엔터를 누르면 \(practice ? "시작해요" : "걸어요")."
+        hint.stringValue = ready ? "엔터를 누르면 \(practice ? "시작해요" : "걸어요"). 줄바꿈은 Shift+엔터."
             : (practice ? "시작하면 먼저 말을 걸어 주세요. 내가 상대 역할이에요." : "자동 안내면 AI가 번호를 누르고, 사람이 받으면 비서라고 밝힌 뒤 대화해요.")
         if !practice {
             if nameMode { setStatus(!Book.allowed ? "연락처 권한이 없어요 — 설정 > 연락처" : hits.isEmpty ? "연락처에서 못 찾았어요" : "후보를 골라 주세요", Book.allowed ? nil : Pal.orange) }
@@ -528,6 +551,49 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         }
         updateReady()
     }
+    // 엔터: 번호 칸에서는 용건으로 넘어가고(용건이 있으면 건다), 용건 칸에서는 건다. Shift+엔터는 줄바꿈
+    func control(_ c: NSControl, textView: NSTextView, doCommandBy s: Selector) -> Bool {
+        guard c === number, s == #selector(NSResponder.insertNewline(_:)) else { return false }
+        if nameMode {
+            guard let h = Book.choose(hits) else { updateReady(); light(Pal.orange); return true }
+            pick(h)
+        }
+        if task.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { win.makeFirstResponder(task) } else { toggleCall() }
+        return true
+    }
+    func textView(_ t: NSTextView, doCommandBy s: Selector) -> Bool {
+        if s == #selector(NSResponder.insertNewline(_:)) {
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return false }
+            toggleCall(); return true
+        }
+        if s == #selector(NSResponder.insertTab(_:)) { win.makeFirstResponder(number); return true }
+        return false
+    }
+
+    func loadRecent() {
+        past = recentCalls(4)
+        var rows: [NSView] = past.isEmpty ? [] : [label("최근 통화", 11, Pal.faint, .medium)]
+        let dot: [String: NSColor] = ["success": Pal.green, "needs_user": Pal.orange, "failed": Pal.red]
+        for (i, p) in past.enumerated() {
+            let b = NSButton(title: "", target: self, action: #selector(pickPast(_:))); b.tag = i; b.isBordered = false; b.alignment = .left
+            let who = (Book.allowed ? Book.who(p.number)?.name : nil) ?? formatPhone(p.number)
+            let t = NSMutableAttributedString(string: "●  ", attributes: [.font: NSFont.systemFont(ofSize: 7), .foregroundColor: dot[p.outcome] ?? Pal.faint, .baselineOffset: 2])
+            t.append(NSAttributedString(string: who + "  ", attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: Pal.text]))
+            t.append(NSAttributedString(string: p.task.replacingOccurrences(of: "\n", with: " "), attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: Pal.sub]))
+            b.attributedTitle = t; b.lineBreakMode = .byTruncatingTail
+            b.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            rows.append(b)
+        }
+        recent.setViews(rows, in: .top); recent.isHidden = past.isEmpty
+        for b in rows.dropFirst() { b.widthAnchor.constraint(equalTo: recent.widthAnchor).isActive = true }
+    }
+    @objc func pickPast(_ b: NSButton) {
+        let p = past[b.tag]
+        number.stringValue = formatPhone(p.number); showHits([])
+        callee = Book.allowed ? Book.who(p.number).map { "\($0.name) · \($0.label)" } : nil
+        task.string = p.task; updateReady(); win.makeFirstResponder(task)
+    }
+
     func showHits(_ h: [Book.Hit]) {
         hits = h
         suggest.setViews(h.prefix(4).enumerated().map { i, x in
@@ -730,6 +796,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         openLogBtn.isHidden = logPath == nil
         status.stringValue = (clock.stringValue.isEmpty ? "" : "통화 " + clock.stringValue.replacingOccurrences(of: "· ", with: "")); status.textColor = Pal.sub
         clock.stringValue = ""; light(o == "ended" ? nil : col)
+        if !NSApp.isActive { NSApp.requestUserAttention(.informationalRequest); NSSound(named: "Glass")?.play() }   // 다른 일을 하는 동안 끝났다
         enter(.done)
     }
 
@@ -864,6 +931,10 @@ final class Setup: NSObject {
                 let b = NSButton(title: "허용", target: self, action: #selector(allowContacts)); b.bezelStyle = .inline; b.controlSize = .small
                 row.addArrangedSubview(b)
             }
+            if !ok, r["id"] as? String == "ax" {            // 권한은 명령으로 못 고친다: 설정의 그 화면을 바로 연다
+                let b = NSButton(title: "설정 열기", target: self, action: #selector(openAX)); b.bezelStyle = .inline; b.controlSize = .small
+                row.addArrangedSubview(b)
+            }
             checks.addArrangedSubview(row)
             if !ok, r["optional"] == nil, let fix = r["fix"] as? String, !["key", "owner"].contains(r["id"] as? String ?? "") {
                 let f = label(fix, 11, Pal.sub, wrap: true); f.isSelectable = true
@@ -891,6 +962,7 @@ final class Setup: NSObject {
         if !missing() { close() }
     }
     @objc func close() { parent?.endSheet(panel) }
+    @objc func openAX() { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!) }
     @objc func openGuide() { NSWorkspace.shared.open(URL(string: "https://github.com/gyujeongion/aicall/blob/main/docs/setup-ko.md")!) }
     // 연락처: 처음이면 권한 창, 이미 거절했으면 시스템 설정을 연다
     @objc func allowContacts() {

@@ -4,7 +4,7 @@
 
 Type a number and what you want done. AICall dials through the built-in macOS Phone app, presses the right keys when a phone menu answers, and holds the conversation when a person picks up.
 
-![Setup, a call in progress, and the result](docs/screens.png)
+![Dialing, talking to a person, and the result](docs/screens.png)
 
 ## Install
 
