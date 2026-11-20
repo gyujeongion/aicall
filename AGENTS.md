@@ -4,6 +4,7 @@ Instructions for a coding agent (Claude Code, Codex, …) helping a user install
 
 ## Install and verify
 
+0. Check the iPhone is linked: iPhone Settings → Apps → Phone → Calls on Other Devices → this Mac on; Mac Phone app settings → Calls from iPhone on. The Mac must be in Korean (`aicall doctor` checks). Full Korean guide: `docs/setup-ko.md`.
 1. Run the installer: `curl -fsSL https://raw.githubusercontent.com/gyujeongion/aicall/main/install.sh | zsh`
    It needs the user's Mac password once (to install the audio device) — let the user type it.
 2. Run `aicall doctor`. Each `✗` line prints the command that fixes it. Repeat until it says ready.
@@ -12,7 +13,7 @@ Instructions for a coding agent (Claude Code, Codex, …) helping a user install
    `aicall setup --key <OpenAI key> --name <name to introduce them by> --phone <their number>`
    The number may be in any format (`01012345678`, `+82 10 …`); it is stored as digits.
 4. Permissions can only be granted by the user, in System Settings → Privacy & Security:
-   **Accessibility**, **Screen & System Audio Recording** and **Microphone** for *AICall*. **Contacts** is optional (call by name).
+   **Accessibility** (macOS 27: *Device Control & Data Access*), **Screen & System Audio Recording** (system audio only) and **Microphone** for *AICall*. **Contacts** is optional (call by name).
 5. Smoke test without a phone call: `aicall call 0 "say hello" --practice --follow` (uses the Mac mic and speakers).
 
 Where things live:

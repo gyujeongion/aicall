@@ -3,7 +3,7 @@ import AVFoundation
 import Contacts
 
 // AI 통화 — 내 번호로 전화 걸어 AI가 대신 통화하는 앱. 엔진(agent.py 등)은 앱 번들 Resources에 들어 있다.
-// 앱이 엔진을 자식 프로세스로 실행하므로 시스템 오디오·손쉬운 사용·마이크 권한은 이 앱 하나에만 주면 된다.
+// 앱이 엔진을 자식 프로세스로 실행하므로 시스템 오디오·기기 제어·마이크 권한은 이 앱 하나에만 주면 된다.
 // 화면(11-14 B안): 아이폰 통화 화면의 약속을 따른다 — 검은 바탕, 가운데 큰 번호, 아래 둥근 초록 걸기·빨강 끊기, 대화는 말풍선.
 
 let res = Bundle.main.resourcePath!
@@ -402,7 +402,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         speakerKey.button.target = self; speakerKey.button.action = #selector(toggleSpeaker)
         let keys = NSStackView(views: [speakerKey, callKey]); keys.spacing = 30; keys.alignment = .top
 
-        let permText = label("키패드를 누르려면 손쉬운 사용 권한이 필요해요.", 12, Pal.orange)
+        let permText = label("전화 앱을 다루려면 '기기 제어 및 데이터 접근' 권한이 필요해요.", 12, Pal.orange)
         let permBtn = NSButton(title: "설정 열기", target: self, action: #selector(openAXSettings)); permBtn.bezelStyle = .inline
         permRow.setViews([permText, permBtn], in: .leading)
         permRow.isHidden = AXIsProcessTrusted()
@@ -795,7 +795,7 @@ final class Setup: NSObject {
     }
     func doctor() -> [[String: Any]] {
         var r = (try? JSONSerialization.jsonObject(with: run(["doctor", "--json"]).1) as? [[String: Any]]) ?? []
-        r.append(["id": "ax", "name": "손쉬운 사용 권한 (키패드 누르기)", "ok": AXIsProcessTrusted(), "fix": "시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 AI 통화를 켜요"])
+        r.append(["id": "ax", "name": "기기 제어 권한 (번호 넣기·키패드·끊기)", "ok": AXIsProcessTrusted(), "fix": "시스템 설정 > 개인정보 보호 및 보안 > 기기 제어 및 데이터 접근에서 AI 통화를 켜요"])
         r.append(["id": "contacts", "name": "연락처 (선택 · 이름으로 걸기)", "ok": Book.allowed, "optional": true])
         return r
     }
@@ -831,16 +831,19 @@ final class Setup: NSObject {
         prefillFromMe()
         let keyNote = label("키는 이 맥의 ~/.config/aicall/.env 에만 저장돼요. 비워 두면 기존 키를 그대로 써요.", 11, Pal.faint, wrap: true)
         keyNote.preferredMaxLayoutWidth = 316
+        let phoneNote = label("전화는 아이폰을 거쳐 나가요. 아이폰 설정 > 앱 > 전화 > 다른 기기에서 통화 허용에서 이 맥을 켜고, 맥 전화 앱 설정의 'iPhone 통화'도 켜 주세요.", 11, Pal.sub, wrap: true)
+        phoneNote.preferredMaxLayoutWidth = 316
+        let guide = NSButton(title: "처음 설정 안내 전체 보기", target: self, action: #selector(openGuide)); guide.bezelStyle = .inline; guide.controlSize = .small
         let later = NSButton(title: "나중에", target: self, action: #selector(close)); later.bezelStyle = .rounded
         let save = NSButton(title: "저장", target: self, action: #selector(saveTapped)); save.bezelStyle = .rounded; save.keyEquivalent = "\r"
         let btns = NSStackView(views: [NSView(), later, save]); btns.spacing = 8
         err.preferredMaxLayoutWidth = 316
-        let stack = NSStackView(views: [icon, title, sub, card,
+        let stack = NSStackView(views: [icon, title, sub, card, phoneNote, guide,
                                         field(key, "OpenAI API 키", "sk-…"), keyNote,
                                         field(name, "전화에서 밝힐 내 이름", ""),
                                         field(phone, "내 휴대폰 번호 (이 번호로 걸려요)", ""), err, btns])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
-        stack.setCustomSpacing(4, after: icon); stack.setCustomSpacing(14, after: sub); stack.setCustomSpacing(16, after: card); stack.setCustomSpacing(4, after: stack.views[4])
+        stack.setCustomSpacing(4, after: icon); stack.setCustomSpacing(14, after: sub); stack.setCustomSpacing(10, after: card); stack.setCustomSpacing(6, after: phoneNote); stack.setCustomSpacing(16, after: guide); stack.setCustomSpacing(4, after: stack.views[6])
         stack.edgeInsets = NSEdgeInsets(top: 22, left: 32, bottom: 20, right: 32)
         stack.translatesAutoresizingMaskIntoConstraints = false
         let v = panel.contentView!; v.addSubview(stack)
@@ -888,6 +891,7 @@ final class Setup: NSObject {
         if !missing() { close() }
     }
     @objc func close() { parent?.endSheet(panel) }
+    @objc func openGuide() { NSWorkspace.shared.open(URL(string: "https://github.com/gyujeongion/aicall/blob/main/docs/setup-ko.md")!) }
     // 연락처: 처음이면 권한 창, 이미 거절했으면 시스템 설정을 연다
     @objc func allowContacts() {
         if CNContactStore.authorizationStatus(for: .contacts) == .notDetermined {

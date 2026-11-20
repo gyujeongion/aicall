@@ -121,6 +121,12 @@ def read_key():
     return ""
 
 
+def mac_korean():
+    r = subprocess.run(["defaults", "read", "-g", "AppleLanguages"], capture_output=True, text=True)
+    first = re.search(r'"?([A-Za-z-]+)"?', r.stdout.split("(", 1)[-1])
+    return bool(first and first[1].startswith("ko"))
+
+
 def checks():
     """(이름, 통과, 고치는 법) 목록. 앱의 첫 설정 화면도 이 결과(--json)를 그대로 보여준다."""
     path = os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin"
@@ -134,6 +140,7 @@ def checks():
         ("ffmpeg", "ffmpeg (녹음 저장)", which("ffmpeg"), "brew install ffmpeg"),
         ("driver", "AICall Mic/Speaker 가상 장치", os.path.isdir("/Library/Audio/Plug-Ins/HAL/AICall.driver"), INSTALL),
         ("key", "OpenAI API 키", bool(read_key()), "aicall setup --key sk-..."),
+        ("lang", "맥 언어 한국어 (전화 앱 단추를 한국어 이름으로 찾는다)", mac_korean(), "시스템 설정 > 일반 > 언어 및 지역에서 한국어를 맨 위로"),
         ("owner", "내 이름·휴대폰 번호", bool(cfg.get("owner_name") and len(norm_phone(cfg.get("owner_phone"))) >= 8), "aicall setup"),
     ]
 

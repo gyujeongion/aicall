@@ -8,6 +8,10 @@ Type a number and what you want done. AICall dials through the built-in macOS Ph
 
 ## Install
 
+> 한국어 사용자: **[처음 설정 안내](docs/setup-ko.md)** — 아이폰 연결, 설치, 권한, 첫 시험까지 순서대로.
+
+Before you start: turn on **Calls on Other Devices** on your iPhone (Settings → Apps → Phone) for this Mac, and **Calls from iPhone** in the Mac Phone app settings. Make one normal call from the Phone app to check it works.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gyujeongion/aicall/main/install.sh | zsh
 ```
@@ -61,11 +65,12 @@ You are responsible for the laws where you call from and to — AI-voice disclos
 
 ## Requirements
 
-- Apple Silicon Mac on macOS 27, iPhone set up for calls on your Mac (Continuity)
+- Apple Silicon Mac on macOS 27 with the system language set to **Korean** — the Phone app is driven by its Korean button names (other languages are not supported yet)
+- iPhone set up for calls on your Mac (Continuity)
 - [Homebrew](https://brew.sh) and Xcode Command Line Tools (the installer asks if missing)
 - An OpenAI API key
 
-Prompts and the app UI are Korean today; the engine is language-agnostic (see [AGENTS.md](AGENTS.md)).
+Prompts, the app UI and the Phone-app automation are Korean today; the voice engine itself is language-agnostic (see [AGENTS.md](AGENTS.md)).
 
 ## Tests
 

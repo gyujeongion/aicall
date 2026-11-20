@@ -75,7 +75,7 @@ func dump(_ bid: String) {
 
 let a = CommandLine.arguments
 guard a.count >= 2 else { fail("usage: phonectl dial|dtmf|hangup|state|dump", 2) }
-guard AXIsProcessTrusted() else { fail("손쉬운 사용 권한 없음", 3) }
+guard AXIsProcessTrusted() else { fail("기기 제어(손쉬운 사용) 권한 없음", 3) }
 
 func openPhone() {                     // 전화 앱이 꺼져 있으면 뒤에서 띄우고 창이 잡힐 때까지 기다린다
     if NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == PHONE }) == nil {
