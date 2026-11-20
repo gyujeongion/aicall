@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """aicall — AICall 앱으로 내 번호 전화를 걸고 조종하는 CLI (클로드 코드·Codex·agy 등 에이전트용).
 
-  aicall call 08085355882 "목적..." [--speak] [--practice] [--no-handoff] [--brain auto|external] [--follow]
+  aicall call 0212345678 "목적..." [--speak] [--practice] [--no-handoff] [--brain auto|external] [--follow]
   aicall events [--since N] [--wait 10]      # 새 발화·상태 이벤트 (JSON)
   aicall press 1        aicall say "안녕하세요"        aicall end success "요약"
   aicall status         aicall config [--llm openai:gpt-6-luna] [--tts say:Yuna]
