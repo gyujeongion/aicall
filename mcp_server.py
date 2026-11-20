@@ -9,7 +9,7 @@ AICALL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aicall")
 TOOLS = [
     {"name": "call_start", "description": "사용자 본인 휴대폰 번호로 전화를 건다. brain=auto면 앱 내장 LLM이 ARS·대화를 판단하고, external이면 call_events로 듣고 call_press/call_say/call_end로 직접 조종한다.",
      "inputSchema": {"type": "object", "properties": {
-         "number": {"type": "string"}, "purpose": {"type": "string", "description": "이번 전화의 목적·조건(날짜·인원 등)"},
+         "number": {"type": "string", "description": "전화번호(형식 자유) 또는 맥 연락처 이름"}, "purpose": {"type": "string", "description": "이번 전화의 목적·조건(날짜·인원 등)"},
          "speak": {"type": "boolean", "description": "자동 통화는 하이브리드. external에서 말하기가 필요하면 true"},
          "brain": {"type": "string", "enum": ["auto", "external"]},
          "handoff": {"type": "boolean", "description": "주민번호 등 본인 입력은 사용자에게 넘김 (기본 true)"}},

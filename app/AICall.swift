@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import Contacts
 
 // AI 통화 — 내 번호로 전화 걸어 AI가 대신 통화하는 앱. 엔진(agent.py 등)은 앱 번들 Resources에 들어 있다.
 // 앱이 엔진을 자식 프로세스로 실행하므로 시스템 오디오·손쉬운 사용·마이크 권한은 이 앱 하나에만 주면 된다.
@@ -49,6 +50,48 @@ func formatPhone(_ d: String) -> String {
     if rest.count <= 4 { return "\(d.prefix(a))-\(rest)" }
     let mid = rest.count >= 8 ? 4 : 3
     return "\(d.prefix(a))-\(rest.prefix(mid))-\(rest.dropFirst(mid))"
+}
+
+// 맥 연락처: 이름으로 번호 찾기, 번호로 이름 찾기. 권한은 이름을 처음 칠 때(또는 설정 화면에서) 한 번 묻는다
+enum Book {
+    struct Hit { let name: String; let label: String; let number: String; let key: String }
+    static let store = CNContactStore()
+    static var cache: [Hit]?
+    static var allowed: Bool { CNContactStore.authorizationStatus(for: .contacts) == .authorized }
+    static func ask(_ done: @escaping (Bool) -> Void) {
+        if allowed { done(true); return }
+        store.requestAccess(for: .contacts) { ok, _ in DispatchQueue.main.async { done(ok) } }
+    }
+    static func squash(_ s: String) -> String { s.lowercased().filter { !$0.isWhitespace } }
+    static func all() -> [Hit] {
+        if let c = cache { return c }
+        guard allowed else { return [] }
+        let keys = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName)] +
+            ([CNContactNicknameKey, CNContactOrganizationNameKey, CNContactPhoneNumbersKey] as [CNKeyDescriptor])
+        var out: [Hit] = []
+        try? store.enumerateContacts(with: CNContactFetchRequest(keysToFetch: keys)) { c, _ in
+            let full = CNContactFormatter.string(from: c, style: .fullName) ?? ""
+            let name = full.isEmpty ? c.organizationName : full
+            for p in c.phoneNumbers {
+                let d = digitsOnly(p.value.stringValue)
+                guard d.count >= 3 else { continue }
+                out.append(Hit(name: name, label: p.label.map { CNLabeledValue<NSString>.localizedString(forLabel: $0) } ?? "전화",
+                               number: d, key: squash(name + " " + c.nickname + " " + c.organizationName)))
+            }
+        }
+        cache = out
+        NotificationCenter.default.addObserver(forName: .CNContactStoreDidChange, object: nil, queue: .main) { _ in cache = nil }
+        return out
+    }
+    static func search(_ q: String) -> [Hit] { let k = squash(q); return k.isEmpty ? [] : all().filter { $0.key.contains(k) } }
+    static func who(_ digits: String) -> Hit? { digits.count < 3 ? nil : all().first { $0.number == digits } }
+    // 후보가 한 번호로 좁혀질 때만 고른다. 한 사람에 번호가 여럿이면 휴대폰(01…)이 하나일 때 그것 (aicall pick과 같은 규칙)
+    static func choose(_ hits: [Hit]) -> Hit? {
+        if Set(hits.map(\.number)).count == 1 { return hits.first }
+        let mob = hits.filter { $0.number.hasPrefix("01") }
+        if Set(hits.map(\.name)).count == 1, Set(mob.map(\.number)).count == 1 { return mob.first }
+        return nil
+    }
 }
 
 // 디자인 토큰. 강조색은 통화 약속 색(걸기 초록·끊기 빨강)과 넘겨받기 주황뿐. 글꼴은 시스템 한 벌, 숫자만 고정폭 숫자
@@ -160,6 +203,9 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
                        styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
     // 위: 번호와 상태
     let number = NSTextField(string: "")
+    let suggest = NSStackView()                     // 이름을 치면 연락처 후보가 번호 아래에 뜬다
+    var hits: [Book.Hit] = []
+    var callee: String?                             // 연락처에서 찾은 상대 이름 · 번호 종류
     let practiceTitle = label("전화 없이 연습", 22, Pal.text, .light)
     let led = NSView()
     let status = label("", 12, Pal.sub)
@@ -253,10 +299,11 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         number.isBordered = false; number.drawsBackground = false; number.focusRingType = .none; number.alignment = .center
         number.font = .monospacedDigitSystemFont(ofSize: 30, weight: .light); number.textColor = Pal.text
         let center = NSMutableParagraphStyle(); center.alignment = .center
-        number.placeholderAttributedString = NSAttributedString(string: "번호 입력", attributes: [.font: NSFont.systemFont(ofSize: 30, weight: .light), .foregroundColor: Pal.faint, .paragraphStyle: center])
+        number.placeholderAttributedString = NSAttributedString(string: "번호 또는 이름", attributes: [.font: NSFont.systemFont(ofSize: 30, weight: .light), .foregroundColor: Pal.faint, .paragraphStyle: center])
         number.delegate = self
         led.wantsLayer = true; led.layer?.cornerRadius = 3
         let statusRow = NSStackView(views: [led, status, clock]); statusRow.spacing = 6
+        suggest.orientation = .vertical; suggest.alignment = .centerX; suggest.spacing = 2; suggest.isHidden = true
         NSLayoutConstraint.activate([led.widthAnchor.constraint(equalToConstant: 6), led.heightAnchor.constraint(equalToConstant: 6)])
         practiceTitle.alignment = .center
 
@@ -360,7 +407,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         permRow.setViews([permText, permBtn], in: .leading)
         permRow.isHidden = AXIsProcessTrusted()
 
-        let stack = NSStackView(views: [permRow, number, practiceTitle, statusRow, taskBox, taskLineBox, micRow, opts, banner, middle, keys])
+        let stack = NSStackView(views: [permRow, number, suggest, practiceTitle, statusRow, taskBox, taskLineBox, micRow, opts, banner, middle, keys])
         stack.orientation = .vertical; stack.alignment = .centerX; stack.spacing = 12
         stack.setCustomSpacing(2, after: number); stack.setCustomSpacing(2, after: practiceTitle); stack.setCustomSpacing(16, after: statusRow)
         stack.setCustomSpacing(8, after: taskBox); stack.setCustomSpacing(10, after: middle)
@@ -420,6 +467,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         phase = p
         let practice = mode == .practice
         number.isHidden = practice; practiceTitle.isHidden = !practice
+        suggest.isHidden = practice || p != .idle || hits.isEmpty
         taskBox.isHidden = p != .idle; taskLineBox.isHidden = p == .idle
         micRow.isHidden = !(practice && p == .idle)
         opts.isHidden = practice || p != .idle
@@ -438,7 +486,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         switch p {
         case .idle:
             callKey.set(practice ? "mic.fill" : "phone.fill", practice ? "연습 시작" : "전화 걸기", fill: Pal.green, ink: .black)
-            setStatus(practice ? "맥 마이크와 스피커로 AI와 말해 봐요" : (number.stringValue.isEmpty ? "숫자만 넣으면 돼요" : "대기 중"))
+            setStatus(practice ? "맥 마이크와 스피커로 AI와 말해 봐요" : "대기 중")
             clock.stringValue = ""; light(nil)
             updateReady()
         case .dialing, .talking:
@@ -454,17 +502,47 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
     func updateReady() {
         guard phase == .idle else { return }
         let practice = mode == .practice
-        let ready = (practice || number.stringValue.filter(\.isNumber).count >= 3) && !task.string.trimmingCharacters(in: .whitespaces).isEmpty
+        let named = nameMode ? Book.choose(hits) != nil : number.stringValue.filter(\.isNumber).count >= 3
+        let ready = (practice || named) && !task.string.trimmingCharacters(in: .whitespaces).isEmpty
         taskHint.isHidden = !task.string.isEmpty
         callKey.alphaValue = ready ? 1 : 0.35
         hint.stringValue = ready ? "엔터를 누르면 \(practice ? "시작해요" : "걸어요")."
             : (practice ? "시작하면 먼저 말을 걸어 주세요. 내가 상대 역할이에요." : "자동 안내면 AI가 번호를 누르고, 사람이 받으면 비서라고 밝힌 뒤 대화해요.")
-        if !practice { setStatus(number.stringValue.isEmpty ? "숫자만 넣으면 돼요" : "대기 중") }
+        if !practice {
+            if nameMode { setStatus(!Book.allowed ? "연락처 권한이 없어요 — 설정 > 연락처" : hits.isEmpty ? "연락처에서 못 찾았어요" : "후보를 골라 주세요", Book.allowed ? nil : Pal.orange) }
+            else { setStatus(callee ?? (number.stringValue.isEmpty ? "번호나 연락처 이름을 넣어요" : "대기 중")) }
+        }
     }
+    var nameMode: Bool { number.stringValue.unicodeScalars.contains { CharacterSet.letters.contains($0) } }
 
     func textDidChange(_ n: Notification) { updateReady() }
     func controlTextDidChange(_ n: Notification) {
-        number.stringValue = formatPhone(String(digitsOnly(number.stringValue).prefix(13))); updateReady()
+        if nameMode {                                   // 이름을 치면 연락처에서 찾는다 (권한은 처음 한 번 묻는다)
+            callee = nil
+            if Book.allowed { showHits(Book.search(number.stringValue)) }
+            else { Book.ask { ok in if ok { self.controlTextDidChange(n) } else { self.updateReady() } } }
+        } else {
+            number.stringValue = formatPhone(String(digitsOnly(number.stringValue).prefix(13)))
+            showHits([])
+            callee = Book.who(digitsOnly(number.stringValue)).map { "\($0.name) · \($0.label)" }
+        }
+        updateReady()
+    }
+    func showHits(_ h: [Book.Hit]) {
+        hits = h
+        suggest.setViews(h.prefix(4).enumerated().map { i, x in
+            let b = NSButton(title: "", target: self, action: #selector(pickHit(_:))); b.tag = i; b.isBordered = false
+            let t = NSMutableAttributedString(string: x.name + "  ", attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: Pal.text])
+            t.append(NSAttributedString(string: "\(x.label) \(formatPhone(x.number))", attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular), .foregroundColor: Pal.sub]))
+            b.attributedTitle = t
+            return b
+        }, in: .center)
+        suggest.isHidden = h.isEmpty || phase != .idle
+    }
+    @objc func pickHit(_ b: NSButton) { pick(hits[b.tag]); win.makeFirstResponder(task) }
+    func pick(_ h: Book.Hit) {
+        number.stringValue = formatPhone(h.number); callee = "\(h.name) · \(h.label)"
+        showHits([]); updateReady()
     }
 
     @objc func openLog() { if let p = logPath { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } }
@@ -486,6 +564,15 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
             guard let d = try? Data(contentsOf: f), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
             try? FileManager.default.removeItem(at: f)
             if let expires = j["expires_at"] as? Double, Date().timeIntervalSince1970 > expires { continue }
+            if let q = j["lookup"] as? String {          // aicall contacts / aicall call 이름 — 연락처 권한은 이 앱에만 있다
+                let reply = f.deletingPathExtension().appendingPathExtension("reply")
+                Book.ask { ok in
+                    let o: [String: Any] = ok ? ["matches": Book.search(q).prefix(20).map { ["name": $0.name, "label": $0.label, "number": $0.number] }]
+                        : ["error": "연락처 권한이 없어요 — 시스템 설정 > 개인정보 보호 및 보안 > 연락처에서 AI 통화를 켜 주세요"]
+                    try? JSONSerialization.data(withJSONObject: o).write(to: reply, options: .atomic)
+                }
+                continue
+            }
             if let p = proc, p.isRunning {
                 try? "{\"error\":\"busy\"}".write(to: f.deletingPathExtension().appendingPathExtension("reply"), atomically: true, encoding: .utf8); continue
             }
@@ -499,7 +586,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
             }
             let m: Mode = (j["practice"] as? Bool ?? false) ? .practice : .call   // CLI의 --speak 유무와 상관없이 같은 통화(자동 판별)
             applyMode(m, resetTask: true)
-            number.stringValue = formatPhone(digitsOnly(j["number"] as? String ?? ""))
+            number.stringValue = formatPhone(digitsOnly(j["number"] as? String ?? "")); showHits([])
+            callee = (j["callee"] as? String) ?? Book.who(digitsOnly(number.stringValue)).map { "\($0.name) · \($0.label)" }
             if let t = j["task"] as? String, !t.isEmpty { task.string = t }
             handoff.state = (j["handoff"] as? Bool ?? true) ? .on : .off
             externalNext = (j["brain"] as? String) == "external"
@@ -537,6 +625,10 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         let practice = mode == .practice
         var num = "0"
         if !practice {
+            if nameMode {
+                guard let h = Book.choose(hits) else { setStatus(hits.isEmpty ? "연락처에서 못 찾았어요" : "후보를 골라 주세요", Pal.orange); return }
+                pick(h)
+            }
             num = digitsOnly(number.stringValue)
             guard num.count >= 3, num.count <= 12 else { setStatus("번호를 확인해 주세요", Pal.red); win.makeFirstResponder(number); return }
         }
@@ -704,9 +796,11 @@ final class Setup: NSObject {
     func doctor() -> [[String: Any]] {
         var r = (try? JSONSerialization.jsonObject(with: run(["doctor", "--json"]).1) as? [[String: Any]]) ?? []
         r.append(["id": "ax", "name": "손쉬운 사용 권한 (키패드 누르기)", "ok": AXIsProcessTrusted(), "fix": "시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용에서 AI 통화를 켜요"])
+        r.append(["id": "contacts", "name": "연락처 (선택 · 이름으로 걸기)", "ok": Book.allowed, "optional": true])
         return r
     }
-    func showIfNeeded(on w: NSWindow) { if doctor().contains(where: { !($0["ok"] as? Bool ?? false) }) { show(on: w) } }
+    func missing() -> Bool { doctor().contains { !($0["ok"] as? Bool ?? false) && !($0["optional"] as? Bool ?? false) } }
+    func showIfNeeded(on w: NSWindow) { if missing() { show(on: w) } }
 
     func field(_ f: NSTextField, _ title: String, _ ph: String) -> NSView {
         f.placeholderString = ph; f.font = .systemFont(ofSize: 13); f.bezelStyle = .roundedBezel; f.focusRingType = .none
@@ -734,6 +828,7 @@ final class Setup: NSObject {
         card.wantsLayer = true; card.layer?.backgroundColor = Pal.surface.cgColor; card.layer?.cornerRadius = 10
         let c = (try? JSONSerialization.jsonObject(with: (try? Data(contentsOf: support.appendingPathComponent("config.json"))) ?? Data()) as? [String: Any]) ?? [:]
         name.stringValue = c["owner_name"] as? String ?? ""; phone.stringValue = c["owner_phone"] as? String ?? ""
+        prefillFromMe()
         let keyNote = label("키는 이 맥의 ~/.config/aicall/.env 에만 저장돼요. 비워 두면 기존 키를 그대로 써요.", 11, Pal.faint, wrap: true)
         keyNote.preferredMaxLayoutWidth = 316
         let later = NSButton(title: "나중에", target: self, action: #selector(close)); later.bezelStyle = .rounded
@@ -762,8 +857,12 @@ final class Setup: NSObject {
             mark.contentTintColor = ok ? Pal.green : Pal.orange
             let n = label(r["name"] as? String ?? "", 12, ok ? Pal.sub : Pal.text, ok ? .regular : .medium)
             let row = NSStackView(views: [mark, n]); row.spacing = 7
+            if !ok, r["id"] as? String == "contacts" {
+                let b = NSButton(title: "허용", target: self, action: #selector(allowContacts)); b.bezelStyle = .inline; b.controlSize = .small
+                row.addArrangedSubview(b)
+            }
             checks.addArrangedSubview(row)
-            if !ok, let fix = r["fix"] as? String, !["key", "owner"].contains(r["id"] as? String ?? "") {
+            if !ok, r["optional"] == nil, let fix = r["fix"] as? String, !["key", "owner"].contains(r["id"] as? String ?? "") {
                 let f = label(fix, 11, Pal.sub, wrap: true); f.isSelectable = true
                 f.font = .monospacedSystemFont(ofSize: 10.5, weight: .regular); f.preferredMaxLayoutWidth = 270
                 let fr = NSStackView(views: [f]); fr.edgeInsets = NSEdgeInsets(top: 0, left: 20, bottom: 2, right: 0)
@@ -786,9 +885,22 @@ final class Setup: NSObject {
         err.stringValue = ""; key.stringValue = ""
         refresh()
         if let v = panel.contentView?.subviews.first { panel.setContentSize(v.fittingSize) }
-        if !doctor().contains(where: { !($0["ok"] as? Bool ?? false) }) { close() }
+        if !missing() { close() }
     }
     @objc func close() { parent?.endSheet(panel) }
+    // 연락처: 처음이면 권한 창, 이미 거절했으면 시스템 설정을 연다
+    @objc func allowContacts() {
+        if CNContactStore.authorizationStatus(for: .contacts) == .notDetermined {
+            Book.ask { _ in self.prefillFromMe(); self.refresh(); if let v = self.panel.contentView?.subviews.first { self.panel.setContentSize(v.fittingSize) } }
+        } else { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts")!) }
+    }
+    // 빈 칸이면 연락처의 '내 카드'로 이름·번호를 채워 둔다 (저장은 사용자가 누를 때)
+    func prefillFromMe() {
+        guard Book.allowed, name.stringValue.isEmpty || phone.stringValue.isEmpty,
+              let me = try? Book.store.unifiedMeContactWithKeys(toFetch: [CNContactFormatter.descriptorForRequiredKeys(for: .fullName), CNContactPhoneNumbersKey as CNKeyDescriptor]) else { return }
+        if name.stringValue.isEmpty { name.stringValue = CNContactFormatter.string(from: me, style: .fullName) ?? "" }
+        if phone.stringValue.isEmpty, let p = me.phoneNumbers.map({ digitsOnly($0.value.stringValue) }).first(where: { $0.hasPrefix("01") }) { phone.stringValue = p }
+    }
 }
 
 let app = NSApplication.shared

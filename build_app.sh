@@ -14,6 +14,8 @@ cat > $APP/Contents/Info.plist <<PL
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>ko</string>
+<key>CFBundleAllowMixedLocalizations</key><true/>
 <key>CFBundleIdentifier</key><string>$BID</string>
 <key>CFBundleName</key><string>AI 통화</string>
 <key>CFBundleDisplayName</key><string>AI 통화</string>
@@ -23,6 +25,7 @@ cat > $APP/Contents/Info.plist <<PL
 <key>CFBundleShortVersionString</key><string>0.1</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.4</string>
+<key>NSContactsUsageDescription</key><string>연락처 이름으로 전화를 걸고, 통화 상대 이름을 보여 주기 위해 연락처를 읽습니다. 연락처는 이 맥 밖으로 보내지 않습니다.</string>
 <key>NSAudioCaptureUsageDescription</key><string>통화 소리(전화 중계 데몬 출력)를 듣고 받아쓰기 위해 시스템 오디오를 녹음합니다.</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>통화 소리를 듣고 받아쓰기 위해 가상 오디오 장치(BlackHole) 입력을 읽습니다.</string>

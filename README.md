@@ -18,12 +18,14 @@ Prefer the terminal or a coding agent? `aicall doctor` shows the same checklist,
 
 ## Use
 
-**In the app:** enter a number and the task ("opt out of marketing texts", "ask if there's a table for two at 7 on Saturday"), press call. Watch the transcript live, hang up any time. Turn off *hear call audio* to follow it as text only.
+**In the app:** enter a number — or a name from your Mac Contacts — and the task ("opt out of marketing texts", "ask if there's a table for two at 7 on Saturday"), press call. Watch the transcript live, hang up any time. Turn off *hear call audio* to follow it as text only.
 
 **From a terminal or an agent:**
 
 ```bash
 aicall call 0212345678 "Ask if a table for 2 is free Saturday 7pm. If not, end(needs_user)." --follow
+aicall call Mom "..." --follow         # a Contacts name works too
+aicall contacts mom                    # look up numbers by name
 aicall events --since 0 --wait 10     # live JSON events
 aicall press 1   ·   aicall say "..."   ·   aicall end success "summary"
 ```

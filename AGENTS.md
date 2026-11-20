@@ -12,7 +12,7 @@ Instructions for a coding agent (Claude Code, Codex, …) helping a user install
    `aicall setup --key <OpenAI key> --name <name to introduce them by> --phone <their number>`
    The number may be in any format (`01012345678`, `+82 10 …`); it is stored as digits.
 4. Permissions can only be granted by the user, in System Settings → Privacy & Security:
-   **Accessibility**, **Screen & System Audio Recording** and **Microphone** for *AICall*.
+   **Accessibility**, **Screen & System Audio Recording** and **Microphone** for *AICall*. **Contacts** is optional (call by name).
 5. Smoke test without a phone call: `aicall call 0 "say hello" --practice --follow` (uses the Mac mic and speakers).
 
 Where things live:
@@ -24,6 +24,10 @@ Where things live:
 | Call transcripts / recordings | `~/Library/Application Support/AICall/calls/` |
 | Source (installer) | `~/.local/share/aicall` |
 | Python env | `~/.config/aicall/venv` |
+
+## Calling by name
+
+`aicall call <name> "<task>"` and `aicall contacts <name>` search the Mac's Contacts through the app (only the app holds the Contacts permission). A call goes ahead only when the name narrows to one number — for one person with several numbers, their single mobile number. Otherwise it returns the candidates; pick one and call by number. Contact names stay on the Mac; they are not sent to the voice model.
 
 ## Settings (`config.json`)
 
