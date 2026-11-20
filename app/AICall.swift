@@ -396,6 +396,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
         viewChat.target = self; viewChat.action = #selector(toggleResultChat)
         openLogBtn.target = self; openLogBtn.action = #selector(openLog)
         let resultBtns = NSStackView(views: [viewChat, openLogBtn]); resultBtns.spacing = 8
+        resultBtns.setHuggingPriority(.required, for: .horizontal)   // 단추가 하나만 보여도 가운데에 온다
         result.setViews([resultIcon, resultTitle, resultText, resultMeta, resultBtns], in: .center)
         result.orientation = .vertical; result.alignment = .centerX; result.spacing = 6
         result.setCustomSpacing(10, after: resultIcon); result.setCustomSpacing(14, after: resultMeta)
@@ -566,7 +567,9 @@ final class Controller: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTex
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return false }
             toggleCall(); return true
         }
-        if s == #selector(NSResponder.insertTab(_:)) { win.makeFirstResponder(number); return true }
+        if s == #selector(NSResponder.insertTab(_:)) {       // 번호 칸으로: 전체 선택 대신 끝에 커서를 둔다 (한 글자 치면 번호가 통째로 지워지지 않게)
+            win.makeFirstResponder(number); number.currentEditor()?.selectedRange = NSRange(location: (number.stringValue as NSString).length, length: 0); return true
+        }
         return false
     }
 
